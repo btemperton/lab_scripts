@@ -192,6 +192,9 @@ def calculate_hypergeometric_survival(pc_df, shared_mtx):
         	if sig <= 1:
             		sig = 0
         	rtnValue.at[i[0], i[1]] = sig
+        	
+        #this matrix needs to be symmetrical for accurate calculations of weighting so
+        rtnValue = rtnValue + rtnValue.T
 
     	return rtnValue
     
@@ -221,7 +224,11 @@ def calculate_membership_values(classification_df, hypergeometric_survival_df, o
 	logger.info('Calculating group membership........')
 	membership_df = classification_df.pivot(index='node', columns='VCid', values='conservative_membership').fillna(0)
 	membership_df[membership_df>0] =0
-
+	
+	connectivity_df = classification_df.pivot(index='node', columns='VCid', values='conservative_membership').fillna(0)
+	connectivity_df[membership_df>0] =0
+	
+	
 	edge_sums = hypergeometric_survival_df.sum(axis=1, numeric_only=True).astype(float)
 	clusters = classification_df['node'].groupby(classification_df['VCid'])
 		
@@ -235,19 +242,19 @@ def calculate_membership_values(classification_df, hypergeometric_survival_df, o
 	
 	for row_id, data in hypergeometric_survival_df.iterrows():
 		for group_name, group in clusters:
-			if len(group.values) == 1:
-				continue
+			
 			cluster_sum = np.sum(data[group.values])
+			cluster_mean = np.mean(data[group.values])
 			logger.debug("summing edges between %s and %s" % (row_id, group.values))
 			logger.debug("which would be %s,%s" % (row_id, str(data[group.values].values)))
 			logger.debug("The sum of which is: %i " % cluster_sum)
-			membership_df.loc[row_id, group_name] = cluster_sum/edge_sums[row_id]
+			if edge_sums[row_id] > 0:
+				membership_df.loc[row_id, group_name] = cluster_sum/edge_sums[row_id]
+			connectivity_df.loc[row_id, group_name] = cluster_mean
+			
 	membership_df.fillna(0).to_csv('%s/VC.membership.txt' % output, sep='\t')
-	return membership_df
-	
-	
-	
-	
+	connectivity_df.fillna(0).to_csv('%s/VC.connectivity.txt' % output, sep='\t')
+	return membership_df, connectivity_df	
 	    	
 def output_classification(mcl_cluster_file, output, cluster_name_prefix):
 
