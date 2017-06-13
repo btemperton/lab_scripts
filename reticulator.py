@@ -88,7 +88,7 @@ def calculate_shared_content(args):
 	:return: Nothing - it updates the SHARED_ARRAY block
 	"""
 	window_x, window_y = args
-	tmp = np.ctypeslib.as_array(SHARED_ARRAY)
+	tmp = np.ctypeslib.as_array(SHARED_PC_ARRAY)
 	for idx_x in range(window_x, window_x + BLOCK_SIZE):
 		for idx_y in range(window_y, window_y + BLOCK_SIZE):
 
@@ -116,13 +116,13 @@ def calculate_shared_matrix():
 	p = Pool(processes=THREADS)
 	p.map(calculate_shared_content, window_idxs)
 
-	arr = np.ctypeslib.as_array(SHARED_ARRAY)
+	arr = np.ctypeslib.as_array(SHARED_PC_ARRAY)
 	rtnValue = pd.DataFrame(arr, index=PC_DF.index, columns=PC_DF.index)
 	rtnValue.to_csv('%s/shared.mtx.txt' % OUTPUT, sep='\t')
 	return rtnValue
 
 
-def calculate_hypergeometric_survival(pc_df, shared_mtx):
+def calculate_hypergeometric_survival():
 	"""
 	Creates a symmetrical matrix containing the hypergeometric survival function (1-cdf)
 	for each contig pair
@@ -131,36 +131,45 @@ def calculate_hypergeometric_survival(pc_df, shared_mtx):
 	:return: a symmetrical matrix of probabilities
 	"""
 	logger.info('Calculating hypergeometric survival.....')
-	pc_counts = pc_df.groupby(['contig']).PCid.nunique().reset_index()
-	pc_counts.columns = ['contig', 'count']
-	pc_counts.index = pc_counts['contig']
-	contigs = list(shared_mtx.index)
 
-	rtnValue = pd.DataFrame(0, index=contigs, columns=contigs)
+	window_idxs = [(i, j) for i, j in itertools.product(range(0, len(PC_DF.index), BLOCK_SIZE),
+														range(0, len(PC_DF.index), BLOCK_SIZE))]
 
-	for i in itertools.combinations(contigs, 2):
-		number_common_pcs = shared_mtx.loc[i[0], i[1]]
-		a_pc_count = pc_counts.at[i[0], 'count']
-		b_pc_count = pc_counts.at[i[1], 'count']
-		a, b = sorted((a_pc_count, b_pc_count))
-		total_pcs = pc_df.PCid.nunique()
-		T = 0.5 * total_pcs * (total_pcs - 1)
-		logT = np.log10(T)
+	p = Pool(processes=THREADS)
+	p.map(calculate_survival, window_idxs)
 
-		# The -1 is needed here to calculate the inverse cumlutative
-		# density function
-		pval = stats.hypergeom.sf(number_common_pcs - 1, total_pcs, a, b)
-		sig = min(300, np.nan_to_num(-np.log10(pval) - logT))
-
-		# If sig > 1, it is considered a match
-		if sig <= 1:
-			sig = 0
-		rtnValue.at[i[0], i[1]] = sig
-
-	# this matrix needs to be symmetrical for accurate calculations of weighting so
-	rtnValue = rtnValue + rtnValue.T
-
+	arr = np.ctypeslib.as_array(SHARED_HYPER_ARRAY)
+	rtnValue = pd.DataFrame(arr, index=PC_DF.index, columns=PC_DF.index)
 	return rtnValue
+
+
+def calculate_survival(args):
+	"""
+	Calculates the hypergeometric survival based on the n x n blocks of BLOCK_SIZE
+	:param args: the block windows
+	:return: Nothing - it updates the SHARED_ARRAY block
+	"""
+	window_x, window_y = args
+	tmp = np.ctypeslib.as_array(SHARED_HYPER_ARRAY)
+	for idx_x in range(window_x, window_x + BLOCK_SIZE):
+		for idx_y in range(window_y, window_y + BLOCK_SIZE):
+			if idx_x == idx_y:
+				continue
+			if idx_x >= len(PC_DF.index) or idx_y >= len(PC_DF.index):
+				continue
+			number_common_pcs = SHARED_MTX.iloc[idx_x, idx_y]
+			logger.debug("The number of shared PCs between %s and %s is %i" % (PC_DF.index[idx_x], PC_DF.index[idx_y], number_common_pcs))
+			a_pc_count = PC_COUNTS[idx_x]
+			b_pc_count = PC_COUNTS[idx_y]
+			a, b = sorted((a_pc_count, b_pc_count))
+			total_pcs = PC_DF.shape[1]
+			T = 0.5 * total_pcs * (total_pcs - 1)
+			logT = np.log10(T)
+			pval = stats.hypergeom.sf(number_common_pcs - 1, total_pcs, a, b)
+			sig = min(300, np.nan_to_num(-np.log10(pval) - logT))
+			if sig <= 1:
+				sig = 0
+			tmp[idx_x, idx_y] = sig
 
 
 def cluster_viruses_by_mcl(cluster_file, inflation=2.0):
@@ -244,6 +253,7 @@ parser.add_argument('--gene_map', dest='gene_map', metavar='STRING', required=Tr
 parser.add_argument('--output', dest='output', metavar='STRING', required=True)
 parser.add_argument('--cluster_prefix', dest='cluster_prefix', metavar='STRING', default='VC')
 parser.add_argument('--threads', dest='threads', type=int, default=1)
+parser.add_argument('--block_size', dest='block_size', type=int, default=4)
 args = parser.parse_args()
 
 if not os.path.exists(args.output):
@@ -251,22 +261,28 @@ if not os.path.exists(args.output):
 
 OUTPUT = args.output
 THREADS = args.threads
-BLOCK_SIZE=4
+BLOCK_SIZE = args.block_size
 
 s = parse_mcl_dump_file(args.mcl_dump)
 t = load_gene_map(args.gene_map)
 u = add_pc_labels(s, t)
 PC_DF = create_composition_mtx(u, presence_absence=True)
-result = np.ctypeslib.as_ctypes(np.zeros((PC_DF.shape[0], PC_DF.shape[0])))
-SHARED_ARRAY = sharedctypes.RawArray(result._type_, result)
-w = calculate_shared_matrix()
-hypergeometric_df = calculate_hypergeometric_survival(u, w)
+pc_result = np.ctypeslib.as_ctypes(np.zeros((PC_DF.shape[0], PC_DF.shape[0])))
+hyper_result = np.ctypeslib.as_ctypes(np.zeros((PC_DF.shape[0], PC_DF.shape[0])))
+SHARED_PC_ARRAY = sharedctypes.RawArray(pc_result._type_, pc_result)
+SHARED_HYPER_ARRAY = sharedctypes.RawArray(hyper_result._type_, hyper_result)
+
+SHARED_MTX = calculate_shared_matrix()
+
+PC_COUNTS = PC_DF.sum(axis=1)
+
+
+hypergeometric_df = calculate_hypergeometric_survival()
 hypergeometric_df.to_csv('%s/hypergeometric.survival.txt' % OUTPUT, sep='\t')
 
 df = hypergeometric_df.where(np.triu(np.ones(hypergeometric_df.shape)).astype(np.bool))
-df = df.stack().reset_index()
-df.columns = ['Row', 'Column', 'Value']
-df.to_csv('%s/hypergeometric.survival.long.txt' % OUTPUT, sep='\t', index=False, header=False)
+df = df.stack()
+df.to_csv('%s/hypergeometric.survival.long.txt' % OUTPUT, sep='\t')
 viral_cluster_file = cluster_viruses_by_mcl('%s/hypergeometric.survival.long.txt' % OUTPUT)
 classification_df = output_classification(viral_cluster_file, args.cluster_prefix)
 calculate_membership_values(classification_df, hypergeometric_df)
