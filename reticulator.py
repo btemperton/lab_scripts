@@ -9,6 +9,7 @@ import logging
 import subprocess
 from multiprocessing import Pool  # Process pool
 from multiprocessing import sharedctypes
+import tqdm
 
 logger = logging.getLogger('The Reticulator')
 logger.setLevel(logging.INFO)
@@ -114,7 +115,8 @@ def calculate_shared_matrix():
 														range(0, len(PC_DF.index), BLOCK_SIZE))]
 
 	p = Pool(processes=THREADS)
-	p.map(calculate_shared_content, window_idxs)
+	for _ in tqdm.tqdm(p.map(calculate_shared_content, window_idxs), total=len(window_idxs)):
+		pass
 
 	arr = np.ctypeslib.as_array(SHARED_PC_ARRAY)
 	rtnValue = pd.DataFrame(arr, index=PC_DF.index, columns=PC_DF.index)
@@ -136,7 +138,8 @@ def calculate_hypergeometric_survival():
 														range(0, len(PC_DF.index), BLOCK_SIZE))]
 
 	p = Pool(processes=THREADS)
-	p.map(calculate_survival, window_idxs)
+	for _ in tqdm.tqdm(p.map(calculate_survival, window_idxs), total=len(window_idxs)):
+		pass
 
 	arr = np.ctypeslib.as_array(SHARED_HYPER_ARRAY)
 	rtnValue = pd.DataFrame(arr, index=PC_DF.index, columns=PC_DF.index)
