@@ -198,7 +198,7 @@ def cluster_viruses_by_mcl(cluster_file, inflation=2.0):
 
 
 def calculate_membership_values(classification_df, hypergeometric_survival_df):
-	logger.info('Calculating group membership........')
+	logger.info('Calculating membership values........')
 	membership_df = classification_df.pivot(index='node', columns='VCid', values='conservative_membership').fillna(0)
 	membership_df[membership_df > 0] = 0
 
@@ -240,12 +240,15 @@ def output_classification(mcl_cluster_file, cluster_name_prefix):
 	counter = 1
 	with open(mcl_cluster_file, 'r') as handle:
 		for line in handle.readlines():
-			bits = line.strip().split()
+			bits = line.strip().split('\t')
 			for i in bits:
 				rows.append(("%s_%05d" % (cluster_name_prefix, counter), i, 1))
 			counter += 1
 	df = pd.DataFrame.from_records(rows, columns=['VCid', 'node', 'conservative_membership'])
 	df.to_csv('%s/VC.clusters.txt' % OUTPUT, sep='\t', index=False)
+
+	counts = df['VCid'].value_counts()
+	counts.to_csv('%s/VC.counts.txt' % OUTPUT, sep='\t')
 	return df
 
 
@@ -284,6 +287,7 @@ hypergeometric_df = calculate_hypergeometric_survival()
 hypergeometric_df.to_csv('%s/hypergeometric.survival.txt' % OUTPUT, sep='\t')
 
 df = hypergeometric_df.where(np.triu(np.ones(hypergeometric_df.shape)).astype(np.bool))
+hypergeometric_df = pd.read_csv('%s/hypergeometric.survival.txt' % OUTPUT, sep='\t')
 df = df.stack()
 df.to_csv('%s/hypergeometric.survival.long.txt' % OUTPUT, sep='\t')
 viral_cluster_file = cluster_viruses_by_mcl('%s/hypergeometric.survival.long.txt' % OUTPUT)
