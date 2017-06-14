@@ -9,7 +9,6 @@ import logging
 import subprocess
 from multiprocessing import Pool  # Process pool
 from multiprocessing import sharedctypes
-import tqdm
 
 logger = logging.getLogger('The Reticulator')
 logger.setLevel(logging.INFO)
@@ -27,17 +26,19 @@ def parse_mcl_dump_file(dump_file):
 	counter = 1
 	id_rgx = re.compile('ref\|(.*)\|')
 	for line in dump_file.readlines():
-		bits = line.strip().split()
+		bits = line.strip().split('\t')
 		for i in bits:
-			m = id_rgx.search(i)  ## This removes any irritating ref| bits
+			m = id_rgx.search(i)  # This removes any irritating ref| bits
 			if m:
 				i = m.group(1)
 			rows.append(('PC_%06d' % counter, i))
 		counter += 1
-	df = pd.DataFrame.from_records(rows, columns=['PCid', 'node'])
+	pc_df = pd.DataFrame.from_records(rows, columns=['PCid', 'node'])
 
-	df.to_csv('%s/PC.clusters.txt' % OUTPUT, sep='\t', index=False)
-	return df
+	pc_df.to_csv('%s/PC.clusters.txt' % OUTPUT, sep='\t', index=False)
+	counts = pc_df['PCid'].value_counts()
+	counts.to_csv('%s/PC.counts.txt' % OUTPUT, sep='\t')
+	return pc_df
 
 
 def load_gene_map(map_file):
@@ -58,9 +59,9 @@ def add_pc_labels(pc_dict, gm_df):
 	:return: a pandas dataframe
 	"""
 	logger.info('Appending Protein Cluster labels.....')
-	df = pd.merge(gm_df, pc_dict, how='left', on='node')
-	df.to_csv('%s/PC.dictionary.txt' % OUTPUT, sep='\t', index=False)
-	return df
+	pc_df = pd.merge(gm_df, pc_dict, how='left', on='node')
+	pc_df.to_csv('%s/PC.dictionary.txt' % OUTPUT, sep='\t', index=False)
+	return pc_df
 
 
 def create_composition_mtx(pc_df, presence_absence=False):
@@ -73,22 +74,22 @@ def create_composition_mtx(pc_df, presence_absence=False):
 	logger.info('Creating composition matrix.....')
 	v = pc_df.groupby(['contig', 'PCid']).size().reset_index()
 	v.columns = ['contig', 'PCid', 'count']
-	rtnValue = v.pivot(index='contig', columns='PCid', values='count').fillna(0)
+	rtn_value = v.pivot(index='contig', columns='PCid', values='count').fillna(0)
 	if presence_absence:
-		rtnValue[rtnValue > 1] = 1
+		rtn_value[rtn_value > 1] = 1
 
-	rtnValue.to_csv('%s/composition.mtx.txt' % OUTPUT, sep='\t')
+	rtn_value.to_csv('%s/composition.mtx.txt' % OUTPUT, sep='\t')
 
-	return rtnValue
+	return rtn_value
 
 
-def calculate_shared_content(args):
+def calculate_shared_content(windows):
 	"""
 	Calculates the shared content based on the n x n blocks of BLOCK_SIZE
-	:param args: the block windows
+	:param windows: the block windows
 	:return: Nothing - it updates the SHARED_ARRAY block
 	"""
-	window_x, window_y = args
+	window_x, window_y = windows
 	tmp = np.ctypeslib.as_array(SHARED_PC_ARRAY)
 	for idx_x in range(window_x, window_x + BLOCK_SIZE):
 		for idx_y in range(window_y, window_y + BLOCK_SIZE):
@@ -112,47 +113,43 @@ def calculate_shared_matrix():
 	:return: A DataFrame containing the shared content between each contig
 	"""
 	window_idxs = [(i, j) for i, j in itertools.product(range(0, len(PC_DF.index), BLOCK_SIZE),
-														range(0, len(PC_DF.index), BLOCK_SIZE))]
+																range(0, len(PC_DF.index), BLOCK_SIZE))]
 
 	p = Pool(processes=THREADS)
-	for _ in tqdm.tqdm(p.map(calculate_shared_content, window_idxs), total=len(window_idxs)):
-		pass
+	p.map(calculate_shared_content, window_idxs)
 
 	arr = np.ctypeslib.as_array(SHARED_PC_ARRAY)
-	rtnValue = pd.DataFrame(arr, index=PC_DF.index, columns=PC_DF.index)
-	rtnValue.to_csv('%s/shared.mtx.txt' % OUTPUT, sep='\t')
-	return rtnValue
+	rtn_value = pd.DataFrame(arr, index=PC_DF.index, columns=PC_DF.index)
+	rtn_value.to_csv('%s/shared.mtx.txt' % OUTPUT, sep='\t')
+	return rtn_value
 
 
 def calculate_hypergeometric_survival():
 	"""
 	Creates a symmetrical matrix containing the hypergeometric survival function (1-cdf)
 	for each contig pair
-	:param pc_df: The dataframe of PCs - to work out the number of PCs per contig
-	:param shared_mtx: The matrix with the number of shared PCs between contigs
 	:return: a symmetrical matrix of probabilities
 	"""
 	logger.info('Calculating hypergeometric survival.....')
 
 	window_idxs = [(i, j) for i, j in itertools.product(range(0, len(PC_DF.index), BLOCK_SIZE),
-														range(0, len(PC_DF.index), BLOCK_SIZE))]
+																range(0, len(PC_DF.index), BLOCK_SIZE))]
 
 	p = Pool(processes=THREADS)
-	for _ in tqdm.tqdm(p.map(calculate_survival, window_idxs), total=len(window_idxs)):
-		pass
+	p.map(calculate_survival, window_idxs)
 
 	arr = np.ctypeslib.as_array(SHARED_HYPER_ARRAY)
-	rtnValue = pd.DataFrame(arr, index=PC_DF.index, columns=PC_DF.index)
-	return rtnValue
+	rtn_value = pd.DataFrame(arr, index=PC_DF.index, columns=PC_DF.index)
+	return rtn_value
 
 
-def calculate_survival(args):
+def calculate_survival(windows):
 	"""
 	Calculates the hypergeometric survival based on the n x n blocks of BLOCK_SIZE
-	:param args: the block windows
+	:param windows: the block windows
 	:return: Nothing - it updates the SHARED_ARRAY block
 	"""
-	window_x, window_y = args
+	window_x, window_y = windows
 	tmp = np.ctypeslib.as_array(SHARED_HYPER_ARRAY)
 	for idx_x in range(window_x, window_x + BLOCK_SIZE):
 		for idx_y in range(window_y, window_y + BLOCK_SIZE):
@@ -161,15 +158,17 @@ def calculate_survival(args):
 			if idx_x >= len(PC_DF.index) or idx_y >= len(PC_DF.index):
 				continue
 			number_common_pcs = SHARED_MTX.iloc[idx_x, idx_y]
-			logger.debug("The number of shared PCs between %s and %s is %i" % (PC_DF.index[idx_x], PC_DF.index[idx_y], number_common_pcs))
+			logger.debug("The number of shared PCs between %s and %s is %i" % (
+				PC_DF.index[idx_x], PC_DF.index[idx_y], number_common_pcs))
 			a_pc_count = PC_COUNTS[idx_x]
 			b_pc_count = PC_COUNTS[idx_y]
 			a, b = sorted((a_pc_count, b_pc_count))
 			total_pcs = PC_DF.shape[1]
-			T = 0.5 * total_pcs * (total_pcs - 1)
-			logT = np.log10(T)
+			number_of_comparison = 0.5 * total_pcs * (total_pcs - 1)
+			log_number_of_comparisons = np.log10(number_of_comparison)
 			pval = stats.hypergeom.sf(number_common_pcs - 1, total_pcs, a, b)
-			sig = min(300, np.nan_to_num(-np.log10(pval) - logT))
+			# noinspection PyTypeChecker
+			sig = min(300, np.nan_to_num(-np.log10(pval) - log_number_of_comparisons))
 			if sig <= 1:
 				sig = 0
 			tmp[idx_x, idx_y] = sig
@@ -197,16 +196,16 @@ def cluster_viruses_by_mcl(cluster_file, inflation=2.0):
 	return "%s/viral.clusters.mcl.I%i" % (OUTPUT, inflation * 10)
 
 
-def calculate_membership_values(classification_df, hypergeometric_survival_df):
+def calculate_membership_values(cl_df, hypergeometric_survival_df):
 	logger.info('Calculating membership values........')
-	membership_df = classification_df.pivot(index='node', columns='VCid', values='conservative_membership').fillna(0)
+	membership_df = cl_df.pivot(index='node', columns='VCid', values='conservative_membership').fillna(0)
 	membership_df[membership_df > 0] = 0
 
-	connectivity_df = classification_df.pivot(index='node', columns='VCid', values='conservative_membership').fillna(0)
+	connectivity_df = cl_df.pivot(index='node', columns='VCid', values='conservative_membership').fillna(0)
 	connectivity_df[membership_df > 0] = 0
 
 	edge_sums = hypergeometric_survival_df.sum(axis=1, numeric_only=True).astype(float)
-	clusters = classification_df['node'].groupby(classification_df['VCid'])
+	clusters = cl_df['node'].groupby(cl_df['VCid'])
 
 	# for each cluster, work out the sum of edges of that cluster to each contig
 	# then work out the proportion of those compared to all a contigs edges
@@ -244,12 +243,12 @@ def output_classification(mcl_cluster_file, cluster_name_prefix):
 			for i in bits:
 				rows.append(("%s_%05d" % (cluster_name_prefix, counter), i, 1))
 			counter += 1
-	df = pd.DataFrame.from_records(rows, columns=['VCid', 'node', 'conservative_membership'])
-	df.to_csv('%s/VC.clusters.txt' % OUTPUT, sep='\t', index=False)
+	vc_df = pd.DataFrame.from_records(rows, columns=['VCid', 'node', 'conservative_membership'])
+	vc_df.to_csv('%s/VC.clusters.txt' % OUTPUT, sep='\t', index=False)
 
-	counts = df['VCid'].value_counts()
+	counts = vc_df['VCid'].value_counts()
 	counts.to_csv('%s/VC.counts.txt' % OUTPUT, sep='\t')
-	return df
+	return vc_df
 
 
 logging.basicConfig()
@@ -281,7 +280,6 @@ SHARED_HYPER_ARRAY = sharedctypes.RawArray(hyper_result._type_, hyper_result)
 SHARED_MTX = calculate_shared_matrix()
 
 PC_COUNTS = PC_DF.sum(axis=1)
-
 
 hypergeometric_df = calculate_hypergeometric_survival()
 hypergeometric_df.to_csv('%s/hypergeometric.survival.txt' % OUTPUT, sep='\t')
