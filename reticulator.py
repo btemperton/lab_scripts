@@ -104,7 +104,7 @@ def calculate_shared_content(windows):
 			except KeyError:
 				pass
 			except IndexError:
-				print "idx_x: %i, idx_y: %i" % (idx_x, idx_y)
+				logger.error("idx_x: %i, idx_y: %i" % (idx_x, idx_y))
 
 
 def calculate_shared_matrix():
