@@ -3,6 +3,7 @@ import pandas as pd
 import os
 import argparse
 
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--clstr_file', type=argparse.FileType('r'), required=True)
@@ -30,6 +31,7 @@ def main():
 
     df = pd.DataFrame(membership, columns=['pc_id', 'gene_id'])
     df.to_csv(args.pc_out, index=False)
+
 
 if __name__ == '__main__':
     main()
