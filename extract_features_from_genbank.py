@@ -61,7 +61,7 @@ def extract_gene(record, feature, sample_id):
         feature_id = feature.qualifiers['locus_tag'][0]
         feature_id = feature_id.replace(' ', '')
     except KeyError:
-        print('Oops. Could not find field locus_tag for record: %s' % record.id)
+        feature_id = feature.qualifiers['protein_id'][0]
 
     if sample_id:
         feature_id = '%s__%s' % (sample_id, feature_id)
