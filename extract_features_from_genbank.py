@@ -20,6 +20,7 @@ def main():
     amino_seqs = []
     contigs = []
     feature_ids = []
+    keywords = []
     for f in args.gbk:
         for record in SeqIO.parse(f, 'genbank'):
             record.description = ''
@@ -34,6 +35,7 @@ def main():
                         contig_id = '%s__%s' % (args.sample_id, contig_id)
                     contigs.append(contig_id)
                     feature_ids.append(feature_id)
+                    keywords.append('None')
 
     if args.fna_out:
         SeqIO.write(dna_seqs, args.fna_out, 'fasta')
@@ -42,7 +44,8 @@ def main():
     if args.genomes_out:
         SeqIO.write(genome_seqs, args.genomes_out, 'fasta')
 
-    df = pd.DataFrame({'contig_id': contigs, 'gene_id': feature_ids})
+    df = pd.DataFrame({'contig': contigs, 'id': feature_ids, 'keywords': keywords})
+    df = df[['id', 'contig', 'keywords']]
     df.to_csv(args.tbl_out, index=False)
 
 
