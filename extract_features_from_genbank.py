@@ -27,15 +27,19 @@ def main():
             genome_seqs.append(record)
             for feature in record.features:
                 if feature.type == 'CDS':
-                    dna_record, aa_record, feature_id, keyword = extract_gene(record, feature, args.sample_id)
-                    dna_seqs.append(dna_record)
-                    amino_seqs.append(aa_record)
-                    contig_id = record.id
-                    if args.sample_id:
-                        contig_id = '%s__%s' % (args.sample_id, contig_id)
-                    contigs.append(contig_id)
-                    feature_ids.append(feature_id)
-                    keywords.append(keyword)
+                    try:
+                        dna_record, aa_record, feature_id, keyword = extract_gene(record, feature, args.sample_id)
+                        dna_seqs.append(dna_record)
+                        amino_seqs.append(aa_record)
+                        contig_id = record.id
+                        if args.sample_id:
+                            contig_id = '%s__%s' % (args.sample_id, contig_id)
+                        contigs.append(contig_id)
+                        feature_ids.append(feature_id)
+                        keywords.append(keyword)
+                    except KeyError:
+                        pass
+
 
     if args.fna_out:
         SeqIO.write(dna_seqs, args.fna_out, 'fasta')
@@ -75,7 +79,8 @@ def extract_gene(record, feature, sample_id):
         assert len(feature.qualifiers['translation']) == 1
         aa_seq = feature.qualifiers['translation'][0]
     except KeyError:
-        print('Ooops, some records don\'t have a translation field : %s ' % feature_id)
+        #some records don't have a translation in genbank, so throw an error
+        raise
 
     keyword = feature.qualifiers['product'][0]
     if len(keyword) ==0:
