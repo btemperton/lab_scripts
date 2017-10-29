@@ -71,8 +71,11 @@ def extract_gene(record, feature, sample_id):
 
     dna_record = SeqRecord(dna_seq, id=feature_id, description='')
 
-    assert len(feature.qualifiers['translation']) == 1
-    aa_seq = feature.qualifiers['translation'][0]
+    try:
+        assert len(feature.qualifiers['translation']) == 1
+        aa_seq = feature.qualifiers['translation'][0]
+    except KeyError:
+        print('Ooops, some records don\'t have a translation field : %s ' % feature_id)
 
     keyword = feature.qualifiers['product'][0]
     if len(keyword) ==0:
