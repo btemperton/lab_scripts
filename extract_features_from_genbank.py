@@ -9,9 +9,9 @@ import os
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--gbk', type=argparse.FileType('r'), required=True, nargs='+')
-    parser.add_argument('--fna_out', required=True)
-    parser.add_argument('--genomes_out', required=True)
-    parser.add_argument('--faa_out', required=True)
+    parser.add_argument('--fna_out')
+    parser.add_argument('--genomes_out')
+    parser.add_argument('--faa_out')
     parser.add_argument('--tbl_out', required=True)
     parser.add_argument('--sample_id')
     args = parser.parse_args()
@@ -22,6 +22,7 @@ def main():
     feature_ids = []
     for f in args.gbk:
         for record in SeqIO.parse(f, 'genbank'):
+            record.description = ''
             genome_seqs.append(record)
             for feature in record.features:
                 if feature.type == 'CDS':
@@ -34,9 +35,12 @@ def main():
                     contigs.append(contig_id)
                     feature_ids.append(feature_id)
 
-    SeqIO.write(dna_seqs, args.fna_out, 'fasta')
-    SeqIO.write(amino_seqs, args.faa_out, 'fasta')
-    SeqIO.write(genome_seqs, args.genomes_out, 'fasta')
+    if args.fna_out:
+        SeqIO.write(dna_seqs, args.fna_out, 'fasta')
+    if args.faa_out:
+        SeqIO.write(amino_seqs, args.faa_out, 'fasta')
+    if args.genomes_out:
+        SeqIO.write(genome_seqs, args.genomes_out, 'fasta')
 
     df = pd.DataFrame({'contig_id': contigs, 'gene_id': feature_ids})
     df.to_csv(args.tbl_out, index=False)
