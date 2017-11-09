@@ -1,13 +1,31 @@
 import pandas as pd
-import numpy as np
 from Bio import SeqIO
+import multiprocessing as mp
+import logging
+import tqdm
+import argparse
 
-with open('/Users/bt273/Downloads/short.hybrid/2k5/short.hybrid.scaffolds.2k5.fa', 'r') as handle:
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--scaffolds', metavar='STRING', required=True)
+parser.add_argument('--virfinder', metavar='STRING', required=True)
+parser.add_argument('--nucmer_csv', metavar='STRING', required=True)
+parser.add_argument('--clstr', metavar='STRING', required=True)
+parser.add_argument('--short_cov', metavar='STRING', required=True)
+parser.add_argument('--hybrid_cov', metavar='STRING', required=True)
+parser.add_argument('--output', metavar='STRING', required=True)
+args = parser.parse_args()
+
+logging.basicConfig(level=logging.DEBUG,
+                    format='%(asctime)s %(name)s.%(funcName)s +%(lineno)s: %(levelname)-8s [%(process)d] %(message)s',
+                    )
+
+with open(args.scaffolds, 'r') as handle:
     seq_df = pd.DataFrame([(record.id, len(record.seq), record.id[0]) for record in SeqIO.parse(handle, 'fasta')],
                           columns=['contig_id', 'contig_len', 'contig_type'])
 
 
-virfinder_df = pd.read_csv('/Users/bt273/Downloads/short.hybrid/2k5/virfinder.combined.csv',
+virfinder_df = pd.read_csv(args.virfinder,
                            usecols=[0,4], names=['contig_id', 'virfinder_qvalue'], header=0)
 virfinder_df['contig_id'] = virfinder_df['contig_id'].str.split().str.get(0)
 
@@ -15,18 +33,19 @@ virfinder_df['contig_id'] = virfinder_df['contig_id'].str.split().str.get(0)
 merged_df = pd.merge(seq_df, virfinder_df, on='contig_id', how='left')
 
 
-nucmer_coords_df = pd.read_csv('/Users/bt273/Downloads/short.hybrid/2k5/clstr.c80.i95/nucmer.csv')
-
-contig_records = []
+nucmer_coords_df = pd.read_csv(args.nucmer_csv)
 
 
 def parse_otu(lines):
+
     representative = lines[0][1]
     cluster_name = lines[0][0].replace('>', '')
     is_rep = 'Y'
     rep_sim = 'NA'
 
-    contig_records.append((representative,
+    records = []
+
+    records.append((representative,
                            cluster_name,
                            is_rep,
                            rep_sim, 'NA', 'NA'))
@@ -35,32 +54,38 @@ def parse_otu(lines):
         contig_sim = float(line[1])
 
         slice = nucmer_coords_df[(nucmer_coords_df['ref_name'] == representative) &
-                               (nucmer_coords_df['query_name'] == contig_name)]
-        max_aln_row = slice.ix[slice['ref_len_aln'].idxmax()]
-        ref_start, ref_finish = max_aln_row[['ref_start', 'ref_finish']]
-        contig_records.append((contig_name,
+                               (nucmer_coords_df['query_name'] == contig_name) & (nucmer_coords_df['ref_len_aln'] >=1000)]
+
+        ref_start = '|'.join(list(slice['ref_start']))
+        ref_finish = '|'.join(list(slice['ref_finish']))
+        records.append((contig_name,
                                cluster_name,
                                'N',
                                contig_sim, ref_start, ref_finish))
+    #logging.info('Completed processing of %s' % cluster_name)
+    return records
 
 
+clusters = []
 
 
-
-with open('/Users/bt273/Downloads/short.hybrid/2k5/clstr.c80.i95/reads_95-80.clstr', 'r') as handle:
+with open(args.clstr, 'r') as handle:
     lines = []
     cluster_count = 0
     for line in handle.readlines():
         if line.startswith('>') and len(lines) > 0:
-            parse_otu(lines)
-            if cluster_count % 10 == 0:
-                print('completed %i clusters' % cluster_count)
-            cluster_count += 1
+            clusters.append(lines)
             lines = []
             lines.append(line.strip().split())
         else:
             lines.append(line.strip().split())
-    parse_otu(lines)
+    clusters.append(lines)
+
+
+with mp.Pool(4) as p:
+    total_records = list(tqdm.tqdm(p.imap(parse_otu, clusters), total=len(clusters)))
+
+contig_records = [record for sublist in total_records for record in sublist]
 
 cluster_df = pd.DataFrame(contig_records, columns=['contig_id', 'cluster_name', 'is_cluster_representative', 'similarity_to_cluster_representative', 'ref_start', 'ref_finish'])
 
@@ -68,7 +93,7 @@ merged_df = pd.merge(merged_df, cluster_df, on='contig_id', how='left')
 
 ##coverage
 
-short_coverage_df = pd.read_csv('/Users/bt273/Downloads/short.hybrid/2k5/short.coverage.tbl',
+short_coverage_df = pd.read_csv(args.short_cov,
                                 sep='\t', header=0, usecols=[0,2,3,4],
                                 names=['contig_id', 'GC', 'mean_coverage', 'percent_covered'])
 pat = r'(.*)'
@@ -76,7 +101,7 @@ repl = lambda m: "S_%s" % m.group(1)
 short_coverage_df['contig_id'] = short_coverage_df['contig_id'].str.replace(pat, repl)
 
 
-hybrid_coverage_df = pd.read_csv('/Users/bt273/Downloads/short.hybrid/2k5/hybrid.coverage.tbl',
+hybrid_coverage_df = pd.read_csv(args.hybrid_cov,
                                 sep='\t', header=0, usecols=[0,2,3,4],
                                 names=['contig_id', 'GC', 'mean_coverage', 'percent_covered'])
 pat = r'(.*)'
@@ -90,7 +115,7 @@ merged_df = pd.merge(merged_df, coverage_df, on='contig_id', how='left')
 print(merged_df.head())
 merged_df.sort_values(['cluster_name', 'is_cluster_representative'], ascending=[True, False], inplace=True)
 
-merged_df.to_csv('/Users/bt273/Downloads/short.hybrid/2k5/short.hybrid.2k5.analysis.csv', index=False)
+merged_df.to_csv(args.output, index=False)
 
 
 
