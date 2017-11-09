@@ -56,8 +56,8 @@ def parse_otu(lines):
         slice = nucmer_coords_df[(nucmer_coords_df['ref_name'] == representative) &
                                (nucmer_coords_df['query_name'] == contig_name) & (nucmer_coords_df['ref_len_aln'] >=1000)]
 
-        ref_start = '|'.join(list(slice['ref_start']))
-        ref_finish = '|'.join(list(slice['ref_finish']))
+        ref_start = '|'.join([str(x) for x in list(slice['ref_start'])])
+        ref_finish = '|'.join([str(x) for x in list(slice['ref_finish'])])
         records.append((contig_name,
                                cluster_name,
                                'N',
