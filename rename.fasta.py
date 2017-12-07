@@ -36,7 +36,7 @@ def main():
 
 	if(args.mapping_file):
 		df = pd.DataFrame(records, columns=['old_id', 'new_id'])
-		df.to_csv(args.mapping_file, index=False)
+		df.to_csv(args.mapping_file, index=False, sep='\t', header=False)
 	
 if __name__ == '__main__':
     main()	
