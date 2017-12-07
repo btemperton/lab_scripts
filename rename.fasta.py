@@ -21,7 +21,7 @@ def main():
 	for record in SeqIO.parse(args.infile, 'fasta'):
 		new_id = "%s_%05d" % (args.prefix, counter)
 		if (args.mapping_file):
-			records.append((record.id, new_id))
+			records.append((new_id, record.id))
 
 		record.id = new_id
 		if (args.no_desc):
