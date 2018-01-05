@@ -42,9 +42,6 @@ def main():
 			record.description = ''
 		out_seqs.append(record)
 		counter += 1
-		if len(out_seqs) > 1000:
-			SeqIO.write(out_seqs, args.outfile, 'fasta')
-			out_seqs = []
 
 	SeqIO.write(out_seqs, args.outfile, 'fasta')
 
