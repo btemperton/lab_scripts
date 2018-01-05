@@ -33,7 +33,7 @@ def main():
 		if args.random:
 			new_id = id_generator(8)
 		else:
-			new_id = "%s_%05d" % (args.prefix, counter)
+			new_id = "%s_%06d" % (args.prefix, counter)
 		if args.mapping_file:
 			records.append((new_id, record.id, args.sample))
 
