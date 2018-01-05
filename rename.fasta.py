@@ -20,7 +20,7 @@ def main():
 	parser.add_argument('--outfile', nargs='?', type=argparse.FileType('w'), default=sys.stdout)
 	parser.add_argument('--mapping_file', type=argparse.FileType('w'))
 	parser.add_argument('--prefix', type=str)
-	parser.add_argument('--random', default=True, action='store_true')
+	parser.add_argument('--random', default=False, action='store_true')
 	parser.add_argument('--sample', type=str, default='NA')
 	parser.add_argument('--no_desc', dest='no_desc', default=True, action='store_true')
 	parser.set_defaults(no_desc=False)
